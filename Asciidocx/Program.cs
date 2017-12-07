@@ -11,9 +11,9 @@ namespace Asciidocx
     // asciidocx.exe ../hello-asciidoc.txt -to docx
     // asciidocx.exe ../hello-asciidoc.txt -to pdf
     // Return codes:
-    // 0 - normal exit
-    // 1 - error occured
-    // -1 - help requested, no actual work done
+    // 0 -> normal exit
+    // 1 -> error occured
+    // -1 -> help requested, no actual work done
     public static class Program
     {
         private const string Usage = "Usage:\n\tinput_file [-to (docx|pdf|html|markdown)] [output_file]";
@@ -99,17 +99,17 @@ namespace Asciidocx
 }
 
 /* 
- * Regex validation data:
-../hello-asciidoc.txt -f docx ../hello-asciidoc.docx
+ * Regex validation data (check lines separately):
+../hello-asciidoc.txt -to docx ../hello-asciidoc.docx
 ../hello-asciidoc.txt ../hello-asciidoc.docx
-../hello-asciidoc.txt -f docx
-../hello-asciidoc.txt -f pdf
+../hello-asciidoc.txt -to docx
+../hello-asciidoc.txt -to pdf
 
-../hello-asciidoc.txt -f
-../hello-asciidoc.txt ../hello-asciidoc.docx -f
-../hello-asciidoc.txt ../hello-asciidoc.docx -f pdf
+../hello-asciidoc.txt -to
+../hello-asciidoc.txt ../hello-asciidoc.docx -to
+../hello-asciidoc.txt ../hello-asciidoc.docx -to pdf
 ../hello-asciidoc.txt -d pdf
 ../hello-asciidoc.txt -d pdf ../hello-asciidoc.docx 
 ../hello-asciidoc.txt -d pdf ../hello-asciidoc.docx -d pdf
-../hello-asciidoc.txt -f pdf ../hello-asciidoc.docx -f pdf
+../hello-asciidoc.txt -to pdf ../hello-asciidoc.docx -to pdf
  */
