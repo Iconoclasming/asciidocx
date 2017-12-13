@@ -55,14 +55,22 @@ namespace Asciidocx
             }
             else
             {
-                Console.Out.WriteLine("error while reading input.\n" + Usage);
+                Console.Error.WriteLine("error while reading input.\n" + Usage);
                 return 1;
             }
             if (string.IsNullOrWhiteSpace(outputFormat) && string.IsNullOrWhiteSpace(output))
             {
-                Console.Out.WriteLine("error: either format or output file name with extension must be specified.");
+                Console.Error.WriteLine("error: either format or output file name with extension must be specified.");
                 return 1;
             }
+
+            var inputExtension = Path.GetExtension(input);
+            if (string.IsNullOrWhiteSpace(inputExtension))
+            {
+                Console.Error.WriteLine("error: extension for input file must be specified");
+                return 1;
+            }
+
             if (string.IsNullOrWhiteSpace(outputFormat))
             {
                 outputFormat = Path.GetExtension(output).TrimStart('.');
@@ -76,12 +84,6 @@ namespace Asciidocx
             }
             else if (string.IsNullOrWhiteSpace(output))
             {
-                var inputExtension = Path.GetExtension(input);
-                if (string.IsNullOrWhiteSpace(inputExtension))
-                {
-                    Console.Out.WriteLine("error: extension for input file must be specified");
-                    return 1;
-                }
                 output = input.Replace(inputExtension, $".{outputFormat}");
 #if DEBUG
                 Console.Out.WriteLine($"constructed output file name for input file \"{input}\" and output" +
@@ -91,25 +93,32 @@ namespace Asciidocx
 
             if (string.IsNullOrWhiteSpace(outputFormat))
             {
-                Console.Out.WriteLine("error: output format was not specified");
+                Console.Error.WriteLine("error: output format was not specified");
                 return 1;
             }
             if (outputFormat.ToLower() != "pdf" && outputFormat.ToLower() != "html"
                 && outputFormat.ToLower() != "markdown" && outputFormat.ToLower() != "docx")
             {
-                Console.Out.WriteLine($"error: output format \"{outputFormat}\" is not recognized");
+                Console.Error.WriteLine($"error: output format \"{outputFormat}\" is not recognized");
+                return 1;
+            }
+
+            var inputDirectory = Path.GetDirectoryName(Path.GetFullPath(input));
+            if (string.IsNullOrWhiteSpace(inputDirectory))
+            {
+                Console.Out.WriteLine($"error: directory for file {input} was null");
                 return 1;
             }
 
             var tmpAsciidocOutput = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
             var asciidocPath = Path.GetFullPath(ConfigurationManager.AppSettings["asciidoc_path"]);
-            var arguments = $"-b {ConfigurationManager.AppSettings["asciidoc_backend"]} -o \"{tmpAsciidocOutput}\"" +
-                            $" \"{input}\"";
+            var asciidocArguments = $"-b {ConfigurationManager.AppSettings["asciidoc_backend"]}" +
+                                    $" -o \"{tmpAsciidocOutput}\" \"{input}\"";
             var asciidocProcessStartInfo = new ProcessStartInfo
             {
                 FileName = asciidocPath,
                 WorkingDirectory = Directory.GetCurrentDirectory(),
-                Arguments = arguments,
+                Arguments = asciidocArguments,
                 CreateNoWindow = true,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -123,18 +132,55 @@ namespace Asciidocx
             try
             {
                 asciidocProcess = Process.Start(asciidocProcessStartInfo);
+                if (asciidocProcess == null)
+                {
+                    throw new InvalidOperationException("error: failed to start asciidoc process");
+                }
             }
             catch (Exception ex)
             {
-                Console.Out.WriteLine(ex);
-                return 1;
-            }
-            if (asciidocProcess == null)
-            {
-                Console.Out.WriteLine("error: failed to start asciidoc process");
+                if (File.Exists(tmpAsciidocOutput)) File.Delete(tmpAsciidocOutput);
+                Console.Error.WriteLine(ex);
                 return 1;
             }
             asciidocProcess.WaitForExit();
+
+            var pandocPath = Path.GetFullPath(ConfigurationManager.AppSettings["pandoc_path"]);
+            var pandocArguments = $"-f {ConfigurationManager.AppSettings["pandoc_input_format"]}" +
+                            $" -t {outputFormat} {ConfigurationManager.AppSettings["pandoc_extra_arguments"]}" +
+                            $" -o \"{Path.GetFullPath(output)}\" \"{tmpAsciidocOutput}\"";
+            var pandocProcessStartInfo = new ProcessStartInfo
+            {
+                FileName = pandocPath,
+                WorkingDirectory = inputDirectory,
+                Arguments = pandocArguments,
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+#if DEBUG
+            Console.Out.WriteLine($"starting {pandocProcessStartInfo.FileName} with" +
+                                  $" arguments: {pandocProcessStartInfo.Arguments}");
+#endif
+            Process pandocProcess;
+            try
+            {
+                pandocProcess = Process.Start(pandocProcessStartInfo);
+                if (pandocProcess == null)
+                {
+                    throw new InvalidOperationException("error: failed to start pandoc process");
+                }
+            }
+            catch (Exception ex)
+            {
+                if (File.Exists(tmpAsciidocOutput)) File.Delete(tmpAsciidocOutput);
+                Console.Error.WriteLine(ex);
+                return 1;
+            }
+            
+            pandocProcess.WaitForExit();
+            if (File.Exists(tmpAsciidocOutput)) File.Delete(tmpAsciidocOutput);
 
             return 0;
         }
