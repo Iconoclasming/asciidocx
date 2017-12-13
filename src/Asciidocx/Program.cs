@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Configuration;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -6,10 +8,10 @@ using System.Text.RegularExpressions;
 namespace Asciidocx
 {
     // Usage:
-    // asciidocx.exe ../hello-asciidoc.txt -to docx ../hello-asciidoc.docx
-    // asciidocx.exe ../hello-asciidoc.txt ../hello-asciidoc.docx
-    // asciidocx.exe ../hello-asciidoc.txt -to docx
-    // asciidocx.exe ../hello-asciidoc.txt -to pdf
+    // asciidocx.exe hello-asciidoc.txt -to docx hello-asciidoc.docx
+    // asciidocx.exe hello-asciidoc.txt hello-asciidoc.docx
+    // asciidocx.exe hello-asciidoc.txt -to docx
+    // asciidocx.exe hello-asciidoc.txt -to pdf
     // Return codes:
     // 0 -> normal exit
     // 1 -> error occured
@@ -74,7 +76,13 @@ namespace Asciidocx
             }
             else if (string.IsNullOrWhiteSpace(output))
             {
-                output = input.Replace(Path.GetExtension(input), $".{outputFormat}");
+                var inputExtension = Path.GetExtension(input);
+                if (string.IsNullOrWhiteSpace(inputExtension))
+                {
+                    Console.Out.WriteLine("error: extension for input file must be specified");
+                    return 1;
+                }
+                output = input.Replace(inputExtension, $".{outputFormat}");
 #if DEBUG
                 Console.Out.WriteLine($"constructed output file name for input file \"{input}\" and output" +
                                       $" format \"{outputFormat}\": {output}");
@@ -92,7 +100,37 @@ namespace Asciidocx
                 Console.Out.WriteLine($"error: output format \"{outputFormat}\" is not recognized");
                 return 1;
             }
-            
+
+            var asciidocPath = Path.GetFullPath(ConfigurationManager.AppSettings["asciidoc_path"]);
+            var asciidocProcessStartInfo = new ProcessStartInfo
+            {
+                FileName = asciidocPath,
+                WorkingDirectory = Directory.GetCurrentDirectory(),
+                Arguments = $"-b html5 \"{input}\"",
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+#if DEBUG
+            Console.Out.WriteLine($"starting {asciidocPath} with arguments: {asciidocProcessStartInfo.Arguments}");
+#endif
+            Process asciidocProcess;
+            try
+            {
+                asciidocProcess = Process.Start(asciidocProcessStartInfo);
+            }
+            catch (Exception ex)
+            {
+                Console.Out.WriteLine(ex);
+                return 1;
+            }
+            if (asciidocProcess == null)
+            {
+                Console.Out.WriteLine("error: failed to start asciidoc process");
+                return 1;
+            }
+            asciidocProcess.WaitForExit();
             return 0;
         }
     }
