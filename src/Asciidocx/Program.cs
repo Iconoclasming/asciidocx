@@ -19,6 +19,8 @@ namespace Asciidocx
     public static class Program
     {
         private const string Usage = "Usage:\n\tinput_file [-to (docx|pdf|html|markdown)] [output_file]";
+        private static readonly string[] AsciidocBackends = {"docbook45", "xhtml11", "html4", "html5", "docbook", "html"};
+        private static readonly string[] PandocOutputFormats = {"markdown_strict", "docx"};
 
         public static int Main(string[] args)
         {
@@ -30,6 +32,17 @@ namespace Asciidocx
             if (args[0].ToLower() == "help")
             {
                 Console.Out.WriteLine(Usage);
+                var formats = string.Empty;
+                foreach (var asciidocBackend in AsciidocBackends)
+                {
+                    formats += asciidocBackend + ", ";
+                }
+                foreach (var pandocOutputFormat in PandocOutputFormats)
+                {
+                    formats += pandocOutputFormat + ", ";
+                }
+                formats = formats.TrimEnd(',', ' ');
+                Console.Out.WriteLine($"Supported output formats:\n\t{formats}");
                 return -1;
             }
 
@@ -37,7 +50,7 @@ namespace Asciidocx
             var outputFormat = string.Empty;
             var output = string.Empty;
 
-            var argsRegex = new Regex(@"(^)(?<input>[^\s]+)(\s)+((-to )(?<format>[a-zA-Z]+))?(\s?)+(?<output>[^-][^\s]+)?(\n|\r|\r\n)");
+            var argsRegex = new Regex(@"(^)(?<input>[^\s]+)(\s)+((-to )(?<format>[a-zA-Z_]+))?(\s?)+(?<output>[^-][^\s]+)?(\n|\r|\r\n)");
             var argsString = args.Aggregate(string.Empty, (current, s) => current + s + " ").TrimEnd(' ');
             argsString += Environment.NewLine;
             var argsMatch = argsRegex.Match(argsString);
@@ -76,7 +89,11 @@ namespace Asciidocx
                 outputFormat = Path.GetExtension(output).TrimStart('.');
                 if (outputFormat.ToLower() == "md")
                 {
-                    outputFormat = "markdown";
+                    outputFormat = "markdown_strict";
+                }
+                if (outputFormat.ToLower() == "xml")
+                {
+                    outputFormat = "docbook";
                 }
 #if DEBUG
                 Console.Out.WriteLine($"recognized format for output file \"{output}\" is \"{outputFormat}\"");
@@ -84,7 +101,27 @@ namespace Asciidocx
             }
             else if (string.IsNullOrWhiteSpace(output))
             {
-                output = input.Replace(inputExtension, $".{outputFormat}");
+                string newExtension;
+                switch (outputFormat.ToLower())
+                {
+                    case "docbook":
+                    case "docbook45":
+                        newExtension = ".xml";
+                        break;
+                    case "xhtml11":
+                    case "html4":
+                    case "html5":
+                    case "html":
+                        newExtension = ".html";
+                        break;
+                    case "markdown_strict":
+                        newExtension = ".md";
+                        break;
+                    default:
+                        newExtension = $".{outputFormat}";
+                        break;
+                }
+                output = input.Replace(inputExtension, newExtension);
 #if DEBUG
                 Console.Out.WriteLine($"constructed output file name for input file \"{input}\" and output" +
                                       $" format \"{outputFormat}\": {output}");
@@ -96,24 +133,30 @@ namespace Asciidocx
                 Console.Error.WriteLine("error: output format was not specified");
                 return 1;
             }
-            if (outputFormat.ToLower() != "pdf" && outputFormat.ToLower() != "html"
-                && outputFormat.ToLower() != "markdown" && outputFormat.ToLower() != "docx")
-            {
-                Console.Error.WriteLine($"error: output format \"{outputFormat}\" is not recognized");
-                return 1;
-            }
 
-            var inputDirectory = Path.GetDirectoryName(Path.GetFullPath(input));
-            if (string.IsNullOrWhiteSpace(inputDirectory))
-            {
-                Console.Out.WriteLine($"error: directory for file {input} was null");
-                return 1;
-            }
-
-            var tmpAsciidocOutput = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
             var asciidocPath = Path.GetFullPath(ConfigurationManager.AppSettings["asciidoc_path"]);
-            var asciidocArguments = $"-b {ConfigurationManager.AppSettings["asciidoc_backend"]}" +
-                                    $" -o \"{tmpAsciidocOutput}\" \"{input}\"";
+            if (AsciidocBackends.Contains(outputFormat.ToLower()))
+            {
+                return ConvertWithAsciidoc(input, outputFormat, output, asciidocPath);
+            }
+            if (PandocOutputFormats.Contains(outputFormat.ToLower()))
+            {
+                var asciidocBackend = ConfigurationManager.AppSettings["asciidoc_backend"];
+                var pandocPath = Path.GetFullPath(ConfigurationManager.AppSettings["pandoc_path"]);
+                var pandocInputFormat = ConfigurationManager.AppSettings["pandoc_input_format"];
+                var pandocExtraArguments = ConfigurationManager.AppSettings["pandoc_extra_arguments"];
+                return ConvertWithAsciidocAndPandoc(input, asciidocBackend, pandocInputFormat, outputFormat,
+                    output, asciidocPath, pandocPath, pandocExtraArguments);
+            }
+            Console.Error.WriteLine($"error: output format \"{outputFormat}\" is not recognized." +
+                                    " Type \"help\" without quotes to see supported formats.");
+            return 1;
+        }
+
+        private static int ConvertWithAsciidoc(string inputFile, string asciidocBackend, string outputFile,
+            string asciidocPath)
+        {
+            var asciidocArguments = $"-b {asciidocBackend} -o \"{outputFile}\" \"{inputFile}\"";
             var asciidocProcessStartInfo = new ProcessStartInfo
             {
                 FileName = asciidocPath,
@@ -139,16 +182,34 @@ namespace Asciidocx
             }
             catch (Exception ex)
             {
-                if (File.Exists(tmpAsciidocOutput)) File.Delete(tmpAsciidocOutput);
                 Console.Error.WriteLine(ex);
                 return 1;
             }
             asciidocProcess.WaitForExit();
+            return 0;
+        }
 
-            var pandocPath = Path.GetFullPath(ConfigurationManager.AppSettings["pandoc_path"]);
-            var pandocArguments = $"-f {ConfigurationManager.AppSettings["pandoc_input_format"]}" +
-                            $" -t {outputFormat} {ConfigurationManager.AppSettings["pandoc_extra_arguments"]}" +
-                            $" -o \"{Path.GetFullPath(output)}\" \"{tmpAsciidocOutput}\"";
+        private static int ConvertWithAsciidocAndPandoc(string inputFile, string asciidocBackend,
+            string pandocInputFormat, string pandocOutputFormat, string outputFile, string asciidocPath,
+            string pandocPath, string pandocExtraArguments)
+        {
+            var inputDirectory = Path.GetDirectoryName(Path.GetFullPath(inputFile));
+            if (string.IsNullOrWhiteSpace(inputDirectory))
+            {
+                Console.Out.WriteLine($"error: directory for file {inputFile} was null");
+                return 1;
+            }
+
+            var tmpAsciidocOutput = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+            var ret = ConvertWithAsciidoc(inputFile, asciidocBackend, tmpAsciidocOutput, asciidocPath);
+            if (ret != 0)
+            {
+                if (File.Exists(tmpAsciidocOutput)) File.Delete(tmpAsciidocOutput);
+                return ret;
+            }
+
+            var pandocArguments = $"-f {pandocInputFormat} -t {pandocOutputFormat} {pandocExtraArguments}" +
+                                  $" -o \"{Path.GetFullPath(outputFile)}\" \"{tmpAsciidocOutput}\"";
             var pandocProcessStartInfo = new ProcessStartInfo
             {
                 FileName = pandocPath,
@@ -178,7 +239,7 @@ namespace Asciidocx
                 Console.Error.WriteLine(ex);
                 return 1;
             }
-            
+
             pandocProcess.WaitForExit();
             if (File.Exists(tmpAsciidocOutput)) File.Delete(tmpAsciidocOutput);
 
