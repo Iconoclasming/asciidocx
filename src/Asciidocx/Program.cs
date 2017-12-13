@@ -101,19 +101,23 @@ namespace Asciidocx
                 return 1;
             }
 
+            var tmpAsciidocOutput = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
             var asciidocPath = Path.GetFullPath(ConfigurationManager.AppSettings["asciidoc_path"]);
+            var arguments = $"-b {ConfigurationManager.AppSettings["asciidoc_backend"]} -o \"{tmpAsciidocOutput}\"" +
+                            $" \"{input}\"";
             var asciidocProcessStartInfo = new ProcessStartInfo
             {
                 FileName = asciidocPath,
                 WorkingDirectory = Directory.GetCurrentDirectory(),
-                Arguments = $"-b html5 \"{input}\"",
+                Arguments = arguments,
                 CreateNoWindow = true,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
             };
 #if DEBUG
-            Console.Out.WriteLine($"starting {asciidocPath} with arguments: {asciidocProcessStartInfo.Arguments}");
+            Console.Out.WriteLine($"starting {asciidocProcessStartInfo.FileName} with" +
+                                  $" arguments: {asciidocProcessStartInfo.Arguments}");
 #endif
             Process asciidocProcess;
             try
@@ -131,6 +135,7 @@ namespace Asciidocx
                 return 1;
             }
             asciidocProcess.WaitForExit();
+
             return 0;
         }
     }
