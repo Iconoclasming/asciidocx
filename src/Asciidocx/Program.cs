@@ -50,7 +50,7 @@ namespace Asciidocx
             var outputFormat = string.Empty;
             var output = string.Empty;
 
-            var argsRegex = new Regex(@"(^)(?<input>[^\s]+)(\s)+((-to )(?<format>[a-zA-Z_]+))?(\s?)+(?<output>[^-][^\s]+)?(\n|\r|\r\n)");
+            var argsRegex = new Regex(@"(^)(?<input>[^\s]+)(\s)+((-to )(?<format>[a-zA-Z_0-9]+))?(\s?)+(?<output>[^-][^\s]+)?");
             var argsString = args.Aggregate(string.Empty, (current, s) => current + s + " ").TrimEnd(' ');
             argsString += Environment.NewLine;
             var argsMatch = argsRegex.Match(argsString);
@@ -135,18 +135,19 @@ namespace Asciidocx
             }
 
             var asciidocPath = Path.GetFullPath(ConfigurationManager.AppSettings["asciidoc_path"]);
+            var asciidocExtraArguments = ConfigurationManager.AppSettings["asciidoc_extra_arguments"];
             if (AsciidocBackends.Contains(outputFormat.ToLower()))
             {
-                return ConvertWithAsciidoc(input, outputFormat, output, asciidocPath);
+                return ConvertWithAsciidoc(input, outputFormat, output, asciidocPath, asciidocExtraArguments);
             }
             if (PandocOutputFormats.Contains(outputFormat.ToLower()))
             {
-                var asciidocBackend = ConfigurationManager.AppSettings["asciidoc_backend"];
+                var asciidocIntermediateBackend = ConfigurationManager.AppSettings["asciidoc_intermediate_backend"];
                 var pandocPath = Path.GetFullPath(ConfigurationManager.AppSettings["pandoc_path"]);
                 var pandocInputFormat = ConfigurationManager.AppSettings["pandoc_input_format"];
                 var pandocExtraArguments = ConfigurationManager.AppSettings["pandoc_extra_arguments"];
-                return ConvertWithAsciidocAndPandoc(input, asciidocBackend, pandocInputFormat, outputFormat,
-                    output, asciidocPath, pandocPath, pandocExtraArguments);
+                return ConvertWithAsciidocAndPandoc(input, asciidocIntermediateBackend, pandocInputFormat, outputFormat,
+                    output, asciidocPath, pandocPath, asciidocExtraArguments, pandocExtraArguments);
             }
             Console.Error.WriteLine($"error: output format \"{outputFormat}\" is not recognized." +
                                     " Type \"help\" without quotes to see supported formats.");
@@ -154,9 +155,13 @@ namespace Asciidocx
         }
 
         private static int ConvertWithAsciidoc(string inputFile, string asciidocBackend, string outputFile,
-            string asciidocPath)
+            string asciidocPath, string extraArguments)
         {
             var asciidocArguments = $"-b {asciidocBackend} -o \"{outputFile}\" \"{inputFile}\"";
+            if (!string.IsNullOrWhiteSpace(extraArguments))
+            {
+                asciidocArguments = extraArguments + " " + asciidocArguments;
+            }
             var asciidocProcessStartInfo = new ProcessStartInfo
             {
                 FileName = asciidocPath,
@@ -189,9 +194,9 @@ namespace Asciidocx
             return 0;
         }
 
-        private static int ConvertWithAsciidocAndPandoc(string inputFile, string asciidocBackend,
+        private static int ConvertWithAsciidocAndPandoc(string inputFile, string asciidocIntermediateBackend,
             string pandocInputFormat, string pandocOutputFormat, string outputFile, string asciidocPath,
-            string pandocPath, string pandocExtraArguments)
+            string pandocPath, string asciidocExtraArguments, string pandocExtraArguments)
         {
             var inputDirectory = Path.GetDirectoryName(Path.GetFullPath(inputFile));
             if (string.IsNullOrWhiteSpace(inputDirectory))
@@ -201,7 +206,8 @@ namespace Asciidocx
             }
 
             var tmpAsciidocOutput = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-            var ret = ConvertWithAsciidoc(inputFile, asciidocBackend, tmpAsciidocOutput, asciidocPath);
+            var ret = ConvertWithAsciidoc(inputFile, asciidocIntermediateBackend, tmpAsciidocOutput, asciidocPath,
+                asciidocExtraArguments);
             if (ret != 0)
             {
                 if (File.Exists(tmpAsciidocOutput)) File.Delete(tmpAsciidocOutput);
